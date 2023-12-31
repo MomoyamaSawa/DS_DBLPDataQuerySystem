@@ -6,6 +6,16 @@ __pycache__/
 # C extensions
 *.so
 
+node1_config.json
+node2_config.json
+node3_config.json
+node4_config.json
+node5_config.json
+node6_config.json
+node7_config.json
+node8_config.json
+node9_config.json
+
 # Distribution / packaging
 node1/
 node2/
@@ -16,7 +26,6 @@ node6/
 node7/
 node8/
 node9/
-node10/
 .Python
 build/
 develop-eggs/

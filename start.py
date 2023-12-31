@@ -1,4 +1,5 @@
 import os
+import gc
 import bisect
 import json
 import time
@@ -26,6 +27,18 @@ class ConsistentHashRing:
         if self.nodes:
             for node in self.nodes:
                 self.add_node(node)
+
+    def get_config(self):
+        for node in self.nodes:
+            data = {
+                "node": node,
+                "nodes": self.nodes,
+                "virtuals": self.virtuals,
+                "ring": self.ring,
+                "sorted_keys": self.sorted_keys,
+            }
+            with open(f"{node}_config.json", "w", encoding="utf-8") as file:
+                json.dump(data, file)
 
     def add_node(self, node):
         # 本地针对物理阶段创建一个文件夹和里面的主节点数据文件夹
@@ -143,6 +156,13 @@ if __name__ == "__main__":
             last_time = current_time
             data_batch = {}
 
+            # 触发垃圾回收
+            gc.collect()
+
+        # 限制文章数量
+        if count >= 3000000:
+            break
+
         # 清除当前元素，以节省内存
         elem.clear()
 
@@ -151,6 +171,7 @@ if __name__ == "__main__":
     # 插入剩余的数据
     if data_batch:
         hash_ring.insert_data_batch(data_batch)
+    hash_ring.get_config()
 
     # 记录结束时间并计算总用时
     end_time = time.time()
