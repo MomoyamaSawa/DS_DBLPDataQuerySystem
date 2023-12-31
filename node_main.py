@@ -261,8 +261,9 @@ def total(name, start, end):
     return f"Total: {total_num}, Query Time: {elapsed_time:.7f} seconds"
 
 
-@app.route("/total/<string:name>/<int:start>/<int:end>/<int:replica>")
+@app.route("/total/<string:name>/<int:start>/<int:end>/<string:replica>")
 def total_replica(name, start, end, replica):
+    replica = int(replica)
     start_time = time.perf_counter()
 
     if start == 0 and end == 0 and name != "any":
