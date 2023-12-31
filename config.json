@@ -1,0 +1,17 @@
+{
+    "database_access": {
+        "user": "root",
+        "password": "nene0720",
+        "host": "localhost",
+        "database": "DBLP"
+    },
+    "nodes": [
+        "node1",
+        "node2",
+        "node3",
+        "node4",
+        "node5"
+    ],
+    "virtual_node_num": 100,
+    "xml_data_path": "dblp.xml"
+}
