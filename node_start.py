@@ -46,15 +46,17 @@ class HashIndex:
                     values = line.split("|")
                     authors = ast.literal_eval(values[3])
                     date = values[2]
-                    if date not in self.date_index:
-                        self.date_index[date] = []
-                    self.date_index[date].append((virtual_node_name, pos))
+                    # 更新索引
+                    year = date.split("-")[0]
+                    if year not in self.date_index:
+                        self.date_index[year] = []
+                    self.date_index[year].append((virtual_node_name, pos))
                     for author in authors:
                         if author not in self.author_index:
                             self.author_index[author] = []
                         self.author_index[author].append((virtual_node_name, pos))
                         # 添加作者和日期的索引
-                        author_date = f"{author}-{date}"
+                        author_date = f"{author}-{year}"
                         if author_date not in self.author_date_index:
                             self.author_date_index[author_date] = []
                         self.author_date_index[author_date].append(
