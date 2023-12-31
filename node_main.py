@@ -3,6 +3,9 @@ import json
 import bisect
 import time
 import mmh3
+from flask import Flask
+
+app = Flask(__name__)
 
 # 读取配置文件
 with open("node_config.json", "r", encoding="utf-8") as f:
@@ -73,15 +76,98 @@ class DataService:
         self.author_date_index = {}
         self.author_index = {}
         self.date_index = {}
+        self.author_date_index_replica = {}
+        self.author_index_replica = {}
+        self.date_index_replica = {}
         self._get_author_date_index()
         self._get_author_index()
         self._get_date_index()
         end_time = time.time()
         print(f"初始化主数据索引耗时{end_time - start_time}秒")
 
+    def get_replica_date_index(self, replica):
+        index = {}
+        path = f"{self.node}_replica\\date_index\\{replica}.json"
+        with open(path, "r", encoding="utf-8") as json_file:
+            data = json.load(json_file)
+        for key, value in data.items():
+            if key in index:
+                index[key].extend(value)
+            else:
+                index[key] = value
+        return index
+
+    def get_replica_author_index(self, replica):
+        index = {}
+        path = f"{self.node}_replica\\author_index\\{replica}.json"
+        with open(path, "r", encoding="utf-8") as json_file:
+            data = json.load(json_file)
+        for key, value in data.items():
+            if key in index:
+                index[key].extend(value)
+            else:
+                index[key] = value
+        return index
+
+    def get_replica_author_date_index(self, replica):
+        index = {}
+        path = f"{self.node}_replica\\author_date_index\\{replica}.json"
+        with open(path, "r", encoding="utf-8") as json_file:
+            data = json.load(json_file)
+        for key, value in data.items():
+            if key in index:
+                index[key].extend(value)
+            else:
+                index[key] = value
+        return index
+
+    def get_total_by_author(self, author, replica=0):
+        """
+        通过作者名获取总数
+        """
+        if replica == 0:
+            author_index = self.author_index
+        else:
+            author_index = self.get_replica_author_index(replica)
+        return len(author_index.get(author, []))
+
+    def get_total_by_date(self, start_date, end_date, replica=0):
+        """
+        通过日期范围获取总数
+        """
+        if replica == 0:
+            date_index = self.date_index
+        else:
+            date_index = self.get_replica_date_index(replica)
+        total_num = 0
+        current_date = start_date
+        while current_date <= end_date:
+            total_num += len(date_index.get(f"{current_date}", []))
+            current_date += 1
+
+        return total_num
+
+    def get_total_by_author_date(self, author, start_date, end_date, replica=0):
+        """
+        通过作者名和日期获取总数
+        """
+        if replica == 0:
+            author_date_index = self.author_date_index
+        else:
+            author_date_index = self.get_replica_author_date_index(replica)
+        total_num = 0
+        current_date = start_date
+
+        while current_date <= end_date:
+            total_num += len(author_date_index.get(f"{author}-{current_date}", []))
+            current_date += 1
+
+        return total_num
+
     def _get_author_date_index(self):
         # 遍历文件夹下的所有文件
-        for root, dirs, files in os.walk(f"{self.node}/author_date_index"):
+        walk_dir = f"{self.node}/author_date_index"
+        for root, dirs, files in os.walk(walk_dir):
             for file in files:
                 # 文件路径
                 file_path = os.path.join(root, file)
@@ -99,7 +185,8 @@ class DataService:
 
     def _get_author_index(self):
         # 遍历文件夹下的所有文件
-        for root, dirs, files in os.walk(f"{self.node}/author_index"):
+        walk_dir = f"{self.node}/author_index"
+        for root, dirs, files in os.walk(walk_dir):
             for file in files:
                 # 文件路径
                 file_path = os.path.join(root, file)
@@ -117,7 +204,8 @@ class DataService:
 
     def _get_date_index(self):
         # 遍历文件夹下的所有文件
-        for root, dirs, files in os.walk(f"{self.node}/date_index"):
+        walk_dir = f"{self.node}/date_index"
+        for root, dirs, files in os.walk(walk_dir):
             for file in files:
                 # 文件路径
                 file_path = os.path.join(root, file)
@@ -134,8 +222,75 @@ class DataService:
                         self.date_index[key] = value
 
 
+SERVICE = DataService()
+
+
+@app.route("/hello")
+def home():
+    return "Hello, World!"
+
+
+@app.route("/total/<string:name>/<int:start>/<int:end>")
+def total(name, start, end):
+    start_time = time.perf_counter()
+
+    if start == 0 and end == 0 and name != "any":
+        total_num = SERVICE.get_total_by_author(name)
+    elif start == 0 and end != 0 and name != "any":
+        total_num = SERVICE.get_total_by_author_date(name, 1936, end)
+    elif end == 0 and start != 0 and name != "any":
+        total_num = SERVICE.get_total_by_author_date(name, start, 2024)
+    elif start != 0 and end != 0 and name != "any":
+        if start < 1936:
+            start = 1936
+        if end > 2024:
+            end = 2024
+        total_num = SERVICE.get_total_by_author_date(name, start, end)
+    elif start != 0 and end == 0 and name == "any":
+        total_num = SERVICE.get_total_by_date(start, 2024)
+    elif start == 0 and end != 0 and name == "any":
+        total_num = SERVICE.get_total_by_date(1936, end)
+    elif start != 0 and end != 0 and name == "any":
+        total_num = SERVICE.get_total_by_date(start, end)
+    else:
+        total_num = SERVICE.get_total_by_date(1936, 2024)
+
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+
+    return f"Total: {total_num}, Query Time: {elapsed_time:.7f} seconds"
+
+
+@app.route("/total/<string:name>/<int:start>/<int:end>/<int:replica>")
+def total_replica(name, start, end, replica):
+    start_time = time.perf_counter()
+
+    if start == 0 and end == 0 and name != "any":
+        total_num = SERVICE.get_total_by_author(name, replica)
+    elif start == 0 and end != 0 and name != "any":
+        total_num = SERVICE.get_total_by_author_date(name, 1936, end, replica)
+    elif end == 0 and start != 0 and name != "any":
+        total_num = SERVICE.get_total_by_author_date(name, start, 2024, replica)
+    elif start != 0 and end != 0 and name != "any":
+        if start < 1936:
+            start = 1936
+        if end > 2024:
+            end = 2024
+        total_num = SERVICE.get_total_by_author_date(name, start, end, replica)
+    elif start != 0 and end == 0 and name == "any":
+        total_num = SERVICE.get_total_by_date(start, 2024, replica)
+    elif start == 0 and end != 0 and name == "any":
+        total_num = SERVICE.get_total_by_date(1936, end, replica)
+    elif start != 0 and end != 0 and name == "any":
+        total_num = SERVICE.get_total_by_date(start, end, replica)
+    else:
+        total_num = SERVICE.get_total_by_date(1936, 2024, replica)
+
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+
+    return f"Total: {total_num}, Query Time: {elapsed_time:.7f} seconds"
+
+
 if __name__ == "__main__":
-    data_service = DataService()
-    print(data_service.author_date_index)
-    print(data_service.author_index)
-    print(data_service.date_index)
+    app.run(port=8080, threaded=True)
