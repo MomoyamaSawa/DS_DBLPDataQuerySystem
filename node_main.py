@@ -2,6 +2,7 @@ import os
 import json
 import bisect
 import time
+import ast
 import mmh3
 from flask import Flask
 
@@ -221,6 +222,43 @@ class DataService:
                     else:
                         self.date_index[key] = value
 
+    def get_all_by_全局扫描(self):
+        # 通过遍历文件获得所有条数
+        total_num = 0
+        data_dir = os.path.join(self.node, "main_data")
+        virtual_nodes = os.listdir(data_dir)
+        for i, virtual_node in enumerate(virtual_nodes):
+            with open(
+                os.path.join(data_dir, virtual_node), "r", encoding="utf-8"
+            ) as file:
+                while True:
+                    line = file.readline()
+                    if not line:
+                        break
+                    total_num += 1
+        return total_num
+
+    def get_by_全局扫描(self, author, start, end):
+        # 通过遍历文件获得所有条数
+        total_num = 0
+        data_dir = os.path.join(self.node, "main_data")
+        virtual_nodes = os.listdir(data_dir)
+        for i, virtual_node in enumerate(virtual_nodes):
+            with open(
+                os.path.join(data_dir, virtual_node), "r", encoding="utf-8"
+            ) as file:
+                while True:
+                    line = file.readline()
+                    if not line:
+                        break
+                    # 解析数据
+                    values = line.split("|")
+                    authors = ast.literal_eval(values[3])
+                    date = values[2]
+                    if author in authors and start <= int(date.split("-")[0]) <= end:
+                        total_num += 1
+        return total_num
+
 
 SERVICE = DataService()
 
@@ -290,6 +328,24 @@ def total_replica(name, start, end, replica):
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
 
+    return f"Total: {total_num}, Query Time: {elapsed_time:.7f} seconds"
+
+
+@app.route("/test/all")
+def test_all():
+    start_time = time.perf_counter()
+    total_num = SERVICE.get_all_by_全局扫描()
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    return f"Total: {total_num}, Query Time: {elapsed_time:.7f} seconds"
+
+
+@app.route("/test/<string:name>/<int:start>/<int:end>")
+def test(name, start, end):
+    start_time = time.perf_counter()
+    total_num = SERVICE.get_by_全局扫描(name, start, end)
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
     return f"Total: {total_num}, Query Time: {elapsed_time:.7f} seconds"
 
 
