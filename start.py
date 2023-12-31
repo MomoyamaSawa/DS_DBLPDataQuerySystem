@@ -29,16 +29,15 @@ class ConsistentHashRing:
                 self.add_node(node)
 
     def get_config(self):
-        for node in self.nodes:
-            data = {
-                "node": node,
-                "nodes": self.nodes,
-                "virtuals": self.virtuals,
-                "ring": self.ring,
-                "sorted_keys": self.sorted_keys,
-            }
-            with open(f"{node}_config.json", "w", encoding="utf-8") as file:
-                json.dump(data, file)
+        data = {
+            "node": "",
+            "nodes": self.nodes,
+            "virtuals": self.virtuals,
+            "ring": self.ring,
+            "sorted_keys": self.sorted_keys,
+        }
+        with open("node_config.json", "w", encoding="utf-8") as file:
+            json.dump(data, file)
 
     def add_node(self, node):
         # 本地针对物理阶段创建一个文件夹和里面的主节点数据文件夹

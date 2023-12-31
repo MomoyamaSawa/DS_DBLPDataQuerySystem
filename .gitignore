@@ -6,16 +6,16 @@ __pycache__/
 # C extensions
 *.so
 
-node1_config.json
-node2_config.json
-node3_config.json
-node4_config.json
-node5_config.json
-node6_config.json
-node7_config.json
-node8_config.json
-node9_config.json
-
+node_config.json
+node1_replica/
+node2_replica/
+node3_replica/
+node4_replica/
+node5_replica/
+node6_replica/
+node7_replica/
+node8_replica/
+node9_replica/
 # Distribution / packaging
 node1/
 node2/
