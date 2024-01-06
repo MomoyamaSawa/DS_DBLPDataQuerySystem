@@ -1,5 +1,5 @@
 import copy
-from hmac import new
+from datetime import datetime
 import logging
 import os
 import json
@@ -50,9 +50,10 @@ class ConsistentHashRing:
             self.ports = GOSSIP_CONFIG["ports"]
             self.time = GOSSIP_CONFIG["time"]
             self.node_index = CONFIG["nodes"].index(CONFIG["node"])
+            self.last_node = CONFIG["nodes"][self.node_index - 1]
             self.next_node_port = self.ports[(self.node_index + 1) % len(self.ports)]
             self.ip = GOSSIP_CONFIG["ip"]
-            self.thread = None
+            self.thread = threading.Timer(self.time, self._gossip)
             # 创建一个UDP socket
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             # 绑定到监听的IP和端口
@@ -60,6 +61,7 @@ class ConsistentHashRing:
             # 设置为非阻塞模式
             self.sock.setblocking(False)
             self.add = add
+            self.count = 0
         else:
             self.add = add
             response = requests.get("http://localhost:8082/config")
@@ -80,7 +82,7 @@ class ConsistentHashRing:
             self.time = GOSSIP_CONFIG["time"]
             self.node_index = config["nodes"].index("node4")
             self.next_node_port = self.ports[(self.node_index + 1) % len(self.ports)]
-            self.thread = None
+            self.thread = threading.Timer(self.time, self._gossip)
             # 从sorted_keys中随机选择75个节点
             self.selected_keys = random.sample(self.sorted_keys, 75)
             # 将这些节点添加到ring中
@@ -242,7 +244,6 @@ class ConsistentHashRing:
 
     def starter(self):
         app.logger.info("开始gossip")
-        self.thread = threading.Timer(self.time, self._gossip)
         self.thread.start()
 
     def _gossip(self):
@@ -251,7 +252,7 @@ class ConsistentHashRing:
         """
         self.heart_beat()
         # 重新设置定时器
-        self.thread = threading.Timer(0.5, self._gossip)
+        self.thread = threading.Timer(self.time, self._gossip)
         self.thread.start()
 
     def heart_beat(self):
@@ -275,6 +276,12 @@ class ConsistentHashRing:
         try:
             # 尝试接收一个数据包
             data, addr = self.sock.recvfrom(10240)  # 缓冲区大小为10240字节
+            # 清空缓冲区
+            try:
+                while True:
+                    data_, addr_ = self.sock.recvfrom(10240)
+            except  BlockingIOError:
+                pass
             # 将字节转换为JSON字符串
             message_json = data.decode("utf-8")
             # 将JSON字符串转换为字典
@@ -287,10 +294,17 @@ class ConsistentHashRing:
                 self.next_node_port = self.ports[
                     (self.node_index + 1) % len(self.ports)
                 ]
+            else:
+                self.count = 0
 
         except BlockingIOError:
             # 没有数据包可供接收
-            app.logger.info("一次未收到心跳")
+            app.logger.info("未收到心跳")
+            if self.last_node == "node1":
+                self.count += 1
+            if self.count >= 3:
+                dt_object = datetime.fromtimestamp(time.time())
+                app.logger.error(f"{self.last_node}节点四次心跳检测失败，判断为掉线，掉线时间：{dt_object}")
 
 
 class DataService:
@@ -594,6 +608,7 @@ def config():
 def shutdown():
     os.kill(os.getpid(), signal.SIGINT)
 
+
 @app.route("/goodbye")
 def goodbye():
     SERVICE.hash_ring.say_goodbye()
@@ -603,6 +618,16 @@ def goodbye():
     timer.start()
 
     return "Goodbye"
+
+
+@app.route("/kill")
+def kill():
+    dt_object = datetime.fromtimestamp(time.time())
+    # 立即停止发送心跳
+    SERVICE.hash_ring.thread.cancel()
+    app.logger.error(f"{SERVICE.hash_ring.node}节点强制掉线，掉线时间：{dt_object}")
+    os.kill(os.getpid(), signal.SIGINT)
+    return "Killed"
 
 
 if __name__ == "__main__":
