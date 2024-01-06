@@ -6,5 +6,6 @@
         8083
     ],
     "time": 0.3,
-    "add": false
+    "add": false,
+    "loss": 0.1
 }

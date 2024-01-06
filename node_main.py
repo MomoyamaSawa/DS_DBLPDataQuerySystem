@@ -42,6 +42,7 @@ class ConsistentHashRing:
         add=GOSSIP_CONFIG["add"],
     ):
         if add == False:
+            self.loss = GOSSIP_CONFIG["loss"]
             self.virtuals = virtuals
             self.ring = ring
             self.sorted_keys = sorted_keys
@@ -63,6 +64,7 @@ class ConsistentHashRing:
             self.add = add
             self.count = 0
         else:
+            self.loss = GOSSIP_CONFIG["loss"]
             self.add = add
             response = requests.get("http://localhost:8082/config")
             config = json.loads(response.text)
@@ -98,6 +100,18 @@ class ConsistentHashRing:
             self.sock.setblocking(False)
 
             self._initial_data()
+            self.current = time.time()
+
+    def get_details(self):
+        config = {
+            "node": self.node,
+            "current": self.current,
+            "nodes": self.nodes,
+            "ports": self.ports,
+            "ring": self.ring,
+            "sorted_keys": self.sorted_keys,
+        }
+        return json.dumps(config)
 
     def say_hello(self):
         """
@@ -108,6 +122,7 @@ class ConsistentHashRing:
         # 创建一个消息
         message = {
             "type": "hello",
+            "curent":self.current,
             "node": self.node,
             "nodes": self.nodes,
             "ports": self.ports,
@@ -267,9 +282,15 @@ class ConsistentHashRing:
         message_json = json.dumps(message)
         # 将JSON字符串转换为字节
         message_bytes = message_json.encode("utf-8")
-        # 发送消息
-        sock.sendto(message_bytes, (self.ip, self.next_node_port))
-        app.logger.info(f"发送心跳消息到{self.next_node_port}")
+
+        # 模拟丢包
+        if random.random() > self.loss:
+            # 发送消息
+            sock.sendto(message_bytes, (self.ip, self.next_node_port))
+            app.logger.info(f"发送心跳消息到{self.next_node_port}")
+        else:
+            app.logger.info(f"模拟丢包，未发送心跳消息到{self.next_node_port}")
+
         # 关闭socket
         sock.close()
 
@@ -298,6 +319,11 @@ class ConsistentHashRing:
                 or message["type"] == "goodbye"
                 or message["type"] == "fail"
             ):
+                if message["type"] == "fail" and self.node not in message["nodes"]:
+                    # 发现自己被意外排除了马上更新自己时间戳并且 say hello 等待所有服务器回应
+                    self.current = time.time()
+                    self.say_hello()
+                    return
                 self.ring = message["ring"]
                 self.nodes = message["nodes"]
                 self.ports = message["ports"]
@@ -314,7 +340,7 @@ class ConsistentHashRing:
             app.logger.info("未收到心跳")
             if self.last_node == "node1":
                 self.count += 1
-            if self.count >= 3:
+            if self.count >= 4:
                 self.count = 0
                 dt_object = datetime.fromtimestamp(time.time())
                 app.logger.error(f"{self.last_node}节点四次心跳检测失败，判断为掉线，掉线时间：{dt_object}")
@@ -326,6 +352,7 @@ class ConsistentHashRing:
         """
         # 创建一个UDP socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        it_before_ports = self.ports.copy()
         if self.last_node in self.nodes:
             index = self.nodes.index(self.last_node)
             self.nodes.remove(self.last_node)
@@ -346,7 +373,7 @@ class ConsistentHashRing:
         self.last_node = self.nodes[self.node_index - 1]
 
         # 发送消息
-        for port in self.ports:
+        for port in it_before_ports:
             if port == self.ports[self.node_index]:
                 continue
             sock.sendto(message_bytes, (self.ip, port))
