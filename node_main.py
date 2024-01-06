@@ -276,24 +276,36 @@ class ConsistentHashRing:
         try:
             # 尝试接收一个数据包
             data, addr = self.sock.recvfrom(10240)  # 缓冲区大小为10240字节
-            # 清空缓冲区
-            try:
-                while True:
-                    data_, addr_ = self.sock.recvfrom(10240)
-            except  BlockingIOError:
-                pass
             # 将字节转换为JSON字符串
             message_json = data.decode("utf-8")
             # 将JSON字符串转换为字典
             message = json.loads(message_json)
+            # 清空缓冲区
+            try:
+                while True:
+                    data_, addr_ = self.sock.recvfrom(10240)
+                    msg_json = data_.decode("utf-8")
+                    msg = json.loads(msg_json)
+                    # 处理优先级高的事件
+                    if msg["type"] != "heartbeat":
+                        message = msg
+                        break
+            except BlockingIOError:
+                pass
             app.logger.info(f"收到消息:{message}来自{addr}，类型是{message['type']}")
-            if message["type"] == "hello" or message["type"] == "goodbye":
+            if (
+                message["type"] == "hello"
+                or message["type"] == "goodbye"
+                or message["type"] == "fail"
+            ):
                 self.ring = message["ring"]
                 self.nodes = message["nodes"]
                 self.ports = message["ports"]
+                self.node_index = self.nodes.index(self.node)
                 self.next_node_port = self.ports[
                     (self.node_index + 1) % len(self.ports)
                 ]
+                self.last_node = self.nodes[self.node_index - 1]
             else:
                 self.count = 0
 
@@ -303,8 +315,44 @@ class ConsistentHashRing:
             if self.last_node == "node1":
                 self.count += 1
             if self.count >= 3:
+                self.count = 0
                 dt_object = datetime.fromtimestamp(time.time())
                 app.logger.error(f"{self.last_node}节点四次心跳检测失败，判断为掉线，掉线时间：{dt_object}")
+                self._fail()
+
+    def _fail(self):
+        """
+        告知别的组服务自己心跳检测的服务器掉线了，并更新信息
+        """
+        # 创建一个UDP socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if self.last_node in self.nodes:
+            index = self.nodes.index(self.last_node)
+            self.nodes.remove(self.last_node)
+            self.ports.remove(self.ports[index])
+        message = {
+            "type": "fail",
+            "node": self.node,
+            "nodes": self.nodes,
+            "ports": self.ports,
+            "ring": self.ring,
+        }
+        # 将字典转换为JSON字符串
+        message_json = json.dumps(message)
+        # 将JSON字符串转换为字节
+        message_bytes = message_json.encode("utf-8")
+        self.node_index = self.nodes.index(self.node)
+        self.next_node_port = self.ports[(self.node_index + 1) % len(self.ports)]
+        self.last_node = self.nodes[self.node_index - 1]
+
+        # 发送消息
+        for port in self.ports:
+            if port == self.ports[self.node_index]:
+                continue
+            sock.sendto(message_bytes, (self.ip, port))
+            app.logger.info(f"发送fail消息到{port}")
+        # 关闭socket
+        sock.close()
 
 
 class DataService:
@@ -628,6 +676,15 @@ def kill():
     app.logger.error(f"{SERVICE.hash_ring.node}节点强制掉线，掉线时间：{dt_object}")
     os.kill(os.getpid(), signal.SIGINT)
     return "Killed"
+
+
+@app.route("/rejoin")
+def rejoin():
+    dt_object = datetime.fromtimestamp(time.time())
+    app.logger.error(f"{SERVICE.hash_ring.node}节点重新加入，加入时间：{dt_object}")
+    SERVICE.hash_ring.say_hello()
+    SERVICE.hash_ring.starter()
+    return "Rejoined"
 
 
 if __name__ == "__main__":
