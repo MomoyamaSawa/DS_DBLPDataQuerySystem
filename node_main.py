@@ -1,16 +1,30 @@
+import copy
+from hmac import new
+import logging
 import os
 import json
 import bisect
+import signal
 import time
 import ast
 import mmh3
 from flask import Flask
+import socket
+import threading
+import requests
+import random
+import shutil
 
 app = Flask(__name__)
+app.logger.setLevel(logging.INFO)
 
 # 读取配置文件
 with open("node_config.json", "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
+
+# 读取配置文件
+with open("gossip.json", "r", encoding="utf-8") as f:
+    GOSSIP_CONFIG = json.load(f)
 
 
 class ConsistentHashRing:
@@ -25,20 +39,183 @@ class ConsistentHashRing:
         virtuals=CONFIG["virtuals"],
         ring=CONFIG["ring"],
         sorted_keys=CONFIG["sorted_keys"],
+        add=GOSSIP_CONFIG["add"],
     ):
-        self.virtuals = virtuals
-        self.ring = ring
-        self.sorted_keys = sorted_keys
-        self.nodes = nodes
-        self.node = node
+        if add == False:
+            self.virtuals = virtuals
+            self.ring = ring
+            self.sorted_keys = sorted_keys
+            self.nodes = nodes
+            self.node = node
+            self.ports = GOSSIP_CONFIG["ports"]
+            self.time = GOSSIP_CONFIG["time"]
+            self.node_index = CONFIG["nodes"].index(CONFIG["node"])
+            self.next_node_port = self.ports[(self.node_index + 1) % len(self.ports)]
+            self.ip = GOSSIP_CONFIG["ip"]
+            self.thread = None
+            # 创建一个UDP socket
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # 绑定到监听的IP和端口
+            self.sock.bind((self.ip, self.ports[self.node_index]))
+            # 设置为非阻塞模式
+            self.sock.setblocking(False)
+            self.add = add
+        else:
+            self.add = add
+            response = requests.get("http://localhost:8082/config")
+            config = json.loads(response.text)
+            self.virtuals = CONFIG["virtuals"]
+            self.ring = config["ring"]
+            self.before_ring = copy.deepcopy(self.ring)
+            self.before_ring = config["ring"]
+            self.sorted_keys = CONFIG["sorted_keys"]
+            self.nodes = config["nodes"]
+            self.before_nodes = self.nodes.copy()
+            self.node = "node4"
+            self.nodes.append(self.node)
+            self.ports = GOSSIP_CONFIG["ports"]
+            self.before_ports = self.ports.copy()
+            self.ports.append(8084)
+            self.ip = GOSSIP_CONFIG["ip"]
+            self.time = GOSSIP_CONFIG["time"]
+            self.node_index = config["nodes"].index("node4")
+            self.next_node_port = self.ports[(self.node_index + 1) % len(self.ports)]
+            self.thread = None
+            # 从sorted_keys中随机选择75个节点
+            self.selected_keys = random.sample(self.sorted_keys, 75)
+            # 将这些节点添加到ring中
+            for key in self.selected_keys:
+                self.ring[key] = self.node
+            # 重新排序sorted_keys
+            self.sorted_keys.sort()
+            # 创建一个UDP socket
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # 绑定到监听的IP和端口
+            self.sock.bind((self.ip, self.ports[self.node_index]))
+            # 设置为非阻塞模式
+            self.sock.setblocking(False)
+
+            self._initial_data()
+
+    def say_hello(self):
+        """
+        告知其他节点自己的存在
+        """
+        # 创建一个UDP socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # 创建一个消息
+        message = {
+            "type": "hello",
+            "node": self.node,
+            "nodes": self.nodes,
+            "ports": self.ports,
+            "ring": self.ring,
+        }
+        # 将字典转换为JSON字符串
+        message_json = json.dumps(message)
+        # 将JSON字符串转换为字节
+        message_bytes = message_json.encode("utf-8")
+        # 发送消息
+        for port in self.ports:
+            if port == self.ports[self.node_index]:
+                continue
+            sock.sendto(message_bytes, (self.ip, port))
+            app.logger.info(f"发送hello消息到{port}")
+        # 关闭socket
+        sock.close()
+
+    def say_goodbye(self):
+        # 直接逆操作
+        # 创建一个UDP socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # 创建一个消息
+        message = {
+            "type": "goodbye",
+            "node": self.node,
+            "nodes": self.before_nodes,
+            "ports": self.before_ports,
+            "ring": self.before_ring,
+        }
+        # 将字典转换为JSON字符串
+        message_json = json.dumps(message)
+        # 将JSON字符串转换为字节
+        message_bytes = message_json.encode("utf-8")
+        # 发送消息
+        for port in self.ports:
+            if port == self.ports[self.node_index]:
+                continue
+            sock.sendto(message_bytes, (self.ip, port))
+            app.logger.info(f"发送hello消息到{port}")
+        # 关闭socket
+        sock.close()
+        # 把自己文件夹数据也删了
+        shutil.rmtree(f"{self.node}")
+        app.logger.info(f"{message}")
+
+    def _initial_data(self):
+        # 创建目标目录，如果它不存在
+        os.makedirs(f"{self.node}/main_data", exist_ok=True)
+        os.makedirs(f"{self.node}/author_index", exist_ok=True)
+        os.makedirs(f"{self.node}/date_index", exist_ok=True)
+        os.makedirs(f"{self.node}/author_date_index", exist_ok=True)
+        for node in self.nodes:
+            if node == self.node:
+                continue
+            data_files = os.listdir(f"{node}/main_data")
+            for data_file in data_files:
+                # 分割文件名和扩展名
+                file_name, file_ext = os.path.splitext(data_file)
+                file_name_as_int = int(file_name)
+                if file_name_as_int in self.selected_keys:
+                    # 如果文件名在selected_keys中，将文件复制到本地
+                    shutil.copyfile(
+                        f"{node}/main_data/{data_file}",
+                        f"{self.node}/main_data/{data_file}",
+                    )
+                    print(f"从{node}复制{data_file}到{self.node}")
+            author_index_files = os.listdir(f"{node}/author_index")
+            for author_index_file in author_index_files:
+                # 分割文件名和扩展名
+                file_name, file_ext = os.path.splitext(author_index_file)
+                file_name_as_int = int(file_name)
+                if file_name_as_int in self.selected_keys:
+                    # 如果文件名在selected_keys中，将文件复制到本地
+                    shutil.copyfile(
+                        f"{node}/author_index/{author_index_file}",
+                        f"{self.node}/author_index/{author_index_file}",
+                    )
+                    print(f"从{node}复制{author_index_file}到{self.node}")
+            date_index_files = os.listdir(f"{node}/date_index")
+            for date_index_file in date_index_files:
+                # 分割文件名和扩展名
+                file_name, file_ext = os.path.splitext(date_index_file)
+                file_name_as_int = int(file_name)
+                if file_name_as_int in self.selected_keys:
+                    # 如果文件名在selected_keys中，将文件复制到本地
+                    shutil.copyfile(
+                        f"{node}/date_index/{date_index_file}",
+                        f"{self.node}/date_index/{date_index_file}",
+                    )
+                    print(f"从{node}复制{date_index_file}到{self.node}")
+            author_date_index_files = os.listdir(f"{node}/author_date_index")
+            for author_date_index_file in author_date_index_files:
+                # 分割文件名和扩展名
+                file_name, file_ext = os.path.splitext(author_date_index_file)
+                file_name_as_int = int(file_name)
+                if file_name_as_int in self.selected_keys:
+                    # 如果文件名在selected_keys中，将文件复制到本地
+                    shutil.copyfile(
+                        f"{node}/author_date_index/{author_date_index_file}",
+                        f"{self.node}/author_date_index/{author_date_index_file}",
+                    )
+                    print(f"从{node}复制{author_date_index_file}到{self.node}")
 
     def get_config(self):
         config = {
             "node": self.node,
             "nodes": self.nodes,
-            "virtuals": self.virtuals,
+            "ports": self.ports,
             "ring": self.ring,
-            "sorted_keys": self.sorted_keys,
         }
         return json.dumps(config)
 
@@ -63,6 +240,58 @@ class ConsistentHashRing:
     def _hash(self, key):
         return mmh3.hash(key)
 
+    def starter(self):
+        app.logger.info("开始gossip")
+        self.thread = threading.Timer(self.time, self._gossip)
+        self.thread.start()
+
+    def _gossip(self):
+        """
+        gossip协议
+        """
+        self.heart_beat()
+        # 重新设置定时器
+        self.thread = threading.Timer(0.5, self._gossip)
+        self.thread.start()
+
+    def heart_beat(self):
+        """
+        心跳检测
+        """
+        # 创建一个UDP socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # 创建一个心跳消息
+        message = {"type": "heartbeat", "node": self.node}
+        # 将字典转换为JSON字符串
+        message_json = json.dumps(message)
+        # 将JSON字符串转换为字节
+        message_bytes = message_json.encode("utf-8")
+        # 发送消息
+        sock.sendto(message_bytes, (self.ip, self.next_node_port))
+        app.logger.info(f"发送心跳消息到{self.next_node_port}")
+        # 关闭socket
+        sock.close()
+
+        try:
+            # 尝试接收一个数据包
+            data, addr = self.sock.recvfrom(10240)  # 缓冲区大小为10240字节
+            # 将字节转换为JSON字符串
+            message_json = data.decode("utf-8")
+            # 将JSON字符串转换为字典
+            message = json.loads(message_json)
+            app.logger.info(f"收到消息:{message}来自{addr}，类型是{message['type']}")
+            if message["type"] == "hello" or message["type"] == "goodbye":
+                self.ring = message["ring"]
+                self.nodes = message["nodes"]
+                self.ports = message["ports"]
+                self.next_node_port = self.ports[
+                    (self.node_index + 1) % len(self.ports)
+                ]
+
+        except BlockingIOError:
+            # 没有数据包可供接收
+            app.logger.info("一次未收到心跳")
+
 
 class DataService:
     """
@@ -85,6 +314,8 @@ class DataService:
         self._get_date_index()
         end_time = time.time()
         print(f"初始化主数据索引耗时{end_time - start_time}秒")
+        if self.hash_ring.add == True:
+            self.hash_ring.say_hello()
 
     def get_replica_date_index(self, replica):
         index = {}
@@ -349,5 +580,30 @@ def test(name, start, end):
     return f"Total: {total_num}, Query Time: {elapsed_time:.7f} seconds"
 
 
+@app.route("/starter")
+def starter():
+    SERVICE.hash_ring.starter()
+    return "Started"
+
+
+@app.route("/config")
+def config():
+    return SERVICE.hash_ring.get_config()
+
+
+def shutdown():
+    os.kill(os.getpid(), signal.SIGINT)
+
+@app.route("/goodbye")
+def goodbye():
+    SERVICE.hash_ring.say_goodbye()
+
+    # 创建一个定时器，0.5秒后执行shutdown函数
+    timer = threading.Timer(0.5, shutdown)
+    timer.start()
+
+    return "Goodbye"
+
+
 if __name__ == "__main__":
-    app.run(port=8080, threaded=True)
+    app.run(port=SERVICE.hash_ring.ports[SERVICE.hash_ring.node_index], threaded=True)
