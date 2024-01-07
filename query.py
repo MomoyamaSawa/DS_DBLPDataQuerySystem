@@ -159,27 +159,34 @@ def query_indexing():
     print("time:" + str(end_time - start_time))
 
 
+import requests
+import threading
+import time
+
+# 定义一个函数，用于发送请求并更新总数
+def get_and_update_total(url, total_list):
+    response = requests.get(url)
+    print(response.text)
+    total_part = int(response.text.split(",")[0].split(":")[1].strip())
+    total_list.append(total_part)
+
 def query_without_indexing():
-    total = 0
-    total1 = 0
-    total2 = 0
-    total3 = 0
+    total_list = []
 
     start_time = time.time()
-    response1 = requests.get(url4)
-    print(response1.text)
-    total1 = int(response1.text.split(",")[0].split(":")[1].strip())
-    total += total1
 
-    response2 = requests.get(url5)
-    print(response2.text)
-    total2 = int(response2.text.split(",")[0].split(":")[1].strip())
-    total += total2
+    # 创建并启动线程
+    threads = []
+    for url in [url4, url5, url6]:
+        thread = threading.Thread(target=get_and_update_total, args=(url, total_list))
+        thread.start()
+        threads.append(thread)
 
-    response3 = requests.get(url6)
-    print(response3.text)
-    total3 = int(response3.text.split(",")[0].split(":")[1].strip())
-    total += total3
+    # 等待所有线程完成
+    for thread in threads:
+        thread.join()
+
+    total = sum(total_list)
 
     end_time = time.time()
 
@@ -189,5 +196,11 @@ def query_without_indexing():
 
 
 if __name__ == "__main__":
-    query_indexing()
-    query_without_indexing()
+    print("please enter the query way")
+    print("1. query with indexing")
+    print("2. query without indexing")
+    way = input()
+    if(way == "1"):
+        query_indexing()
+    else:
+        query_without_indexing()
