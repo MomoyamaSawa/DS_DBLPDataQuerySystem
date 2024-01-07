@@ -1,4 +1,5 @@
 #coding=utf-8
+import concurrent.futures
 import json
 import time
 
@@ -29,6 +30,10 @@ url6 = f"{base_url3}/test/{author_name}/{start_year}/{end_year}"
 
 chr_instance = ConsistentHashRing()
 
+def get_result(url):
+    response = requests.get(url)
+    print(response.text)
+    return int(response.text.split(",")[0].split(":")[1].strip())
 
 def query_indexing():
     total = 0
@@ -62,15 +67,13 @@ def query_indexing():
         print(new_keys)
 
         # 发送请求进行查询
-        for new_key, value in new_keys.items():
-            if value == "node2":
-                url = f"{base_url2}/total/{author_name}/{start_year}/{end_year}/{new_key}"
-            else:
-                url = f"{base_url3}/total/{author_name}/{start_year}/{end_year}/{new_key}"
-            response = requests.get(url)
-            print(response.text)
-            total1 += int(response.text.split(",")[0].split(":")[1].strip())
-
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # 创建一个Future对象的列表
+            future_to_url = {executor.submit(get_result,
+                                             f"{base_url2 if value == 'node2' else base_url3}/total/{author_name}/{start_year}/{end_year}/{new_key}"): new_key
+                             for new_key, value in new_keys.items()}
+            for future in concurrent.futures.as_completed(future_to_url):
+                total1 += future.result()
         print("total1:" + str(total1))
         total += total1
         # data_dict = json.loads(response.ring)
@@ -101,15 +104,13 @@ def query_indexing():
         print("new_keys:")
         print(new_keys)
 
-        # 发送请求进行查询
-        for new_key, value in new_keys.items():
-            if value == "node3":
-                url = f"{base_url3}/total/{author_name}/{start_year}/{end_year}/{new_key}"
-            else:
-                url = f"{base_url1}/total/{author_name}/{start_year}/{end_year}/{new_key}"
-            response = requests.get(url)
-            # print(response.text)
-            total2 += int(response.text.split(",")[0].split(":")[1].strip())
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # 创建一个Future对象的列表
+            future_to_url = {executor.submit(get_result,
+                                             f"{base_url3 if value == 'node3' else base_url1}/total/{author_name}/{start_year}/{end_year}/{new_key}"): new_key
+                             for new_key, value in new_keys.items()}
+            for future in concurrent.futures.as_completed(future_to_url):
+                total2 += future.result()
 
         print("total2:" + str(total1))
         total += total2
@@ -139,15 +140,13 @@ def query_indexing():
         print("new_keys:")
         print(new_keys)
 
-        # 发送请求进行查询
-        for new_key, value in new_keys.items():
-            if value == "node2":
-                url = f"{base_url2}/total/{author_name}/{start_year}/{end_year}/{new_key}"
-            else:
-                url = f"{base_url1}/total/{author_name}/{start_year}/{end_year}/{new_key}"
-            response = requests.get(url)
-            # print(response.text)
-            total3 += int(response.text.split(",")[0].split(":")[1].strip())
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # 创建一个Future对象的列表
+            future_to_url = {executor.submit(get_result,
+                                             f"{base_url2 if value == 'node2' else base_url1}/total/{author_name}/{start_year}/{end_year}/{new_key}"): new_key
+                             for new_key, value in new_keys.items()}
+            for future in concurrent.futures.as_completed(future_to_url):
+                total3 += future.result()
 
         print("Query without indexing:")
         print("total3:" + str(total1))
