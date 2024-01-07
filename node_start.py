@@ -113,6 +113,13 @@ class ConsistentHashRing:
         self.nodes = nodes
         self.node = node
 
+    def set(self, node, nodes, ring, sorted_keys):
+        self.node = node
+        self.nodes = nodes
+        self.ring = ring
+        self.sorted_keys = sorted_keys
+
+
     def get_config(self):
         config = {
             "node": self.node,

@@ -25,6 +25,8 @@ url1 = f"{base_url1}/total/{author_name}/{start_year}/{end_year}"
 url2 = f"{base_url2}/total/{author_name}/{start_year}/{end_year}"
 url3 = f"{base_url3}/total/{author_name}/{start_year}/{end_year}"
 
+chr_instance = ConsistentHashRing()
+
 try:
     response1 = requests.get(url1)
     print(response1.text)
@@ -32,16 +34,17 @@ try:
     total += total1
 except Exception as e:
     print(e)
-    config_url = f"{base_url2}/config"
-    response = requests.get(config_url)
+    detail_url = f"{base_url2}/details"
+    response = requests.get(detail_url)
     data_dict = json.loads(response.text)
+    chr_instance.set(data_dict["node"], data_dict["nodes"], data_dict["ring"],data_dict["sorted_keys"])
+
     ring_data = data_dict.get('ring', {})
 
     # 获取所有的key为node1的键值对
     keys = {key: value for key, value in ring_data.items() if value == "node1"}
     # 获取备份节点
     new_keys = {}
-    chr_instance = ConsistentHashRing()
     # 遍历原始的字典
     for key in keys:
         new_keys[key] = chr_instance.get_next_virtual_node(int(key))
@@ -69,16 +72,19 @@ try:
     total += total2
 except Exception as e:
     print(e)
-    config_url = f"{base_url3}/config"
-    response = requests.get(config_url)
+    detail_url = f"{base_url3}/details"
+    response = requests.get(detail_url)
     data_dict = json.loads(response.text)
+
+    # 获取最新的哈希环，并对本地的数据结构进行更新
+    chr_instance.set(data_dict["node"], data_dict["nodes"], data_dict["ring"], data_dict["sorted_keys"])
+
     ring_data = data_dict.get('ring', {})
 
     # 获取所有的key为node1的键值对
     keys = {key: value for key, value in ring_data.items() if value == "node2"}
     # 获取备份节点
     new_keys = {}
-    chr_instance = ConsistentHashRing()
     # 遍历原始的字典
     for key in keys:
         new_keys[key] = chr_instance.get_next_virtual_node(int(key))
@@ -105,16 +111,18 @@ try:
     total += total3
 except Exception as e:
     print(e)
-    config_url = f"{base_url1}/config"
-    response = requests.get(config_url)
+    detail_url = f"{base_url1}/details"
+    response = requests.get(detail_url)
     data_dict = json.loads(response.text)
+
+    # 获取最新的哈希环，并对本地的数据结构进行更新
+    chr_instance.set(data_dict["node"], data_dict["nodes"], data_dict["ring"], data_dict["sorted_keys"])
     ring_data = data_dict.get('ring', {})
 
     # 获取所有的key为node1的键值对
     keys = {key: value for key, value in ring_data.items() if value == "node3"}
     # 获取备份节点
     new_keys = {}
-    chr_instance = ConsistentHashRing()
     # 遍历原始的字典
     for key in keys:
         new_keys[key] = chr_instance.get_next_virtual_node(int(key))
