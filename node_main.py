@@ -713,6 +713,10 @@ def rejoin():
     SERVICE.hash_ring.starter()
     return "Rejoined"
 
+@app.route("/details")
+def details():
+    return SERVICE.hash_ring.get_details()
+
 
 if __name__ == "__main__":
     app.run(port=SERVICE.hash_ring.ports[SERVICE.hash_ring.node_index], threaded=True)
