@@ -41,6 +41,7 @@ class ConsistentHashRing:
         sorted_keys=CONFIG["sorted_keys"],
         add=GOSSIP_CONFIG["add"],
     ):
+        self.current = time.time()
         if add == False:
             self.loss = GOSSIP_CONFIG["loss"]
             self.virtuals = virtuals
@@ -122,7 +123,7 @@ class ConsistentHashRing:
         # 创建一个消息
         message = {
             "type": "hello",
-            "curent":self.current,
+            "curent": self.current,
             "node": self.node,
             "nodes": self.nodes,
             "ports": self.ports,
@@ -712,6 +713,7 @@ def rejoin():
     SERVICE.hash_ring.say_hello()
     SERVICE.hash_ring.starter()
     return "Rejoined"
+
 
 @app.route("/details")
 def details():
